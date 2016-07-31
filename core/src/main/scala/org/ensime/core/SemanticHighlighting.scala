@@ -14,6 +14,7 @@ import scala.tools.refactoring.common.{ CompilerAccess, EnrichedTrees }
 import org.ensime.api._
 
 class SemanticHighlighting(val global: RichPresentationCompiler) extends CompilerAccess with EnrichedTrees {
+  val log = LoggerFactory.getLogger(getClass)
 
   import global._
 
@@ -22,11 +23,32 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    override def traverse(t: Tree): Unit = {
+    def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
+      case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
+      def overlapAllowed(sym: SymbolDesignation): Boolean = sym.symType == ImplicitConversionSymbol || sym.symType == ImplicitParamsSymbol
+      def helper(accum: Accum, sym: SymbolDesignation): Accum = {
+        if (accum.previous.end > sym.start) // Overlap
+          if (overlapAllowed(accum.previous) || overlapAllowed(sym)) Accum(sym, accum.a += accum.previous)
+          else if (accum.previous.symType == FunctionCallSymbol) Accum(sym, accum.a)
+          else if (sym.symType == FunctionCallSymbol) accum
+          else Accum(sym, accum.a += accum.previous)
+        else Accum(sym, accum.a += accum.previous)
+      }
 
+      if (l.size <= 1) l
+      else {
+        val Accum(sym, accum) = l.tail.foldLeft(Accum(l.head, ListBuffer[SymbolDesignation]()))(helper)
+        accum += sym
+      }
+    }
+
+    override def traverse(t: Tree): Unit = {
+      log.debug(s"traverse: ${t.summaryString} ${t}")
+      log.debug(s"traverse: ${t.children.map { _.summaryString }}")
       val treeP = t.pos
 
       def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
+        log.debug(s"addAt:  start=$start, end=$end, designation=$designation")
         if (tpeSet.contains(designation)) {
           syms += SymbolDesignation(start, end, designation)
         }
@@ -34,11 +56,13 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       def add(designation: SourceSymbol): Boolean = {
+        log.debug(s"add:  designation=$designation, pos=${t.namePosition()}")
         val pos = t.namePosition()
         addAt(pos.startOrCursor, pos.endOrCursor, designation)
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
+        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}")
         if (sym == NoSymbol) {
           false
         } else if (sym.isCaseApplyOrUnapply) {
@@ -102,7 +126,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         }
       }
 
-      if (!treeP.isTransparent && p.overlaps(treeP)) {
+      // logger.debug(s"traverse: isTransparent=${treeP.isTransparent}, p.overlaps=${p.overlaps(treeP)}, p=${p}, treeP=$treeP")
+      if ( /*!treeP.isTransparent &&*/ p.overlaps(treeP)) {
         try {
           val sym = t.symbol
           t match {
@@ -152,12 +177,15 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                   addAt(start, end, ObjectSymbol)
                 }
               }
+            case Function(vparams, body) =>
+              logger.debug(s"vparams=$vparams, body=$body")
             case _ =>
           }
         } catch {
           case e: Throwable =>
             log.error("Error in AST traverse:", e)
         }
+        log.debug(s"traverse: ---------------")
         super.traverse(t)
       }
     }
@@ -173,9 +201,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
     typed.get.left.toOption match {
       case Some(tree) =>
+        log.debug(s"symboldesignationsinregion: $tree")
         val traverser = new SymDesigsTraverser(p, requestedTypes.toSet)
         traverser.traverse(tree)
-        SymbolDesignations(p.source.file.file, traverser.syms.toList)
+        SymbolDesignations(p.source.file.file, traverser.removeOverlaps(traverser.syms).toList)
       case None =>
         SymbolDesignations(new File("."), List.empty)
     }
