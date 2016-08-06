@@ -18,6 +18,16 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
   import global._
 
+  object MyTraverser extends Traverser {
+    override def traverse(t: Tree): Unit = {
+      log.debug(s"mytraverse:  ${t.summaryString}")
+      log.debug(s"mytraverse:  kids=${t.children}")
+      log.debug(s"mytraverse:  symbol=${t.symbol}, ${if (t.symbol != null) t.symbol.isSynthetic}")
+      log.debug(s"------------------------------")
+      super.traverse(t)
+    }
+  }
+
   class SymDesigsTraverser(p: RangePosition, tpeSet: Set[SourceSymbol]) extends Traverser {
 
     val log = LoggerFactory.getLogger(getClass)
@@ -28,23 +38,32 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       def overlapAllowed(sym: SymbolDesignation): Boolean = sym.symType == ImplicitConversionSymbol || sym.symType == ImplicitParamsSymbol
       def helper(accum: Accum, sym: SymbolDesignation): Accum = {
         if (accum.previous.end > sym.start) // Overlap
-          if (overlapAllowed(accum.previous) || overlapAllowed(sym)) Accum(sym, accum.a += accum.previous)
-          else if (accum.previous.symType == FunctionCallSymbol) Accum(sym, accum.a)
-          else if (sym.symType == FunctionCallSymbol) accum
-          else Accum(sym, accum.a += accum.previous)
+          if (overlapAllowed(accum.previous) || overlapAllowed(sym))
+            Accum(sym, accum.a += accum.previous)
+          else if (accum.previous.symType == FunctionCallSymbol) {
+            log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
+            Accum(sym, accum.a)
+          } else if (sym.symType == FunctionCallSymbol) {
+            log.debug(s"{${p.source}} Removing overlapping $sym with conflicts with ${accum.previous}")
+            accum
+          } else {
+            log.debug(s"{${p.source}} Allowing overlapping  $sym with conflicts with ${accum.previous}")
+            Accum(sym, accum.a += accum.previous)
+          }
         else Accum(sym, accum.a += accum.previous)
       }
 
       if (l.size <= 1) l
       else {
-        val Accum(sym, accum) = l.tail.foldLeft(Accum(l.head, ListBuffer[SymbolDesignation]()))(helper)
+        val sorted = l.sortBy(_.start)
+        val Accum(sym, accum) = sorted.tail.foldLeft(Accum(sorted.head, ListBuffer[SymbolDesignation]()))(helper)
         accum += sym
       }
     }
 
     override def traverse(t: Tree): Unit = {
       log.debug(s"traverse: ${t.summaryString} ${t}")
-      log.debug(s"traverse: ${t.children.map { _.summaryString }}")
+      log.debug(s"traverse: kids=${t.children.map { _.summaryString }}")
       val treeP = t.pos
 
       def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
@@ -62,7 +81,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
-        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}")
+        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}, ${sym.parentSymbols}")
         if (sym == NoSymbol) {
           false
         } else if (sym.isCaseApplyOrUnapply) {
@@ -102,7 +121,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           } else if (sym.hasFlag(PARAMACCESSOR)) {
             add(ValFieldSymbol)
           } else if (sym.isMethod) {
-            if (sym.nameString == "apply" || sym.nameString == "update") { true }
+            if (sym.isSynthetic) false
+            else if (sym.nameString == "apply" || sym.nameString == "update") { true }
             else if (sym.name.isOperatorName) {
               add(OperatorFieldSymbol)
             } else {
@@ -127,67 +147,86 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       // logger.debug(s"traverse: isTransparent=${treeP.isTransparent}, p.overlaps=${p.overlaps(treeP)}, p=${p}, treeP=$treeP")
-      if ( /*!treeP.isTransparent &&*/ p.overlaps(treeP)) {
-        try {
-          val sym = t.symbol
-          t match {
-            case Import(expr, selectors) =>
-              for (impSel <- selectors) {
-                val start = impSel.namePos
-                val end = start + impSel.name.decode.length()
-                addAt(start, end, ImportedNameSymbol)
-              }
-            case Ident(_) =>
-              qualifySymbol(sym)
-            case Select(_, _) =>
-              qualifySymbol(sym)
-
-            case ValDef(mods, name, tpt, rhs) =>
-              if (sym != NoSymbol) {
-                val isField = sym.owner.isType || sym.owner.isModule
-
-                if (mods.hasFlag(PARAM)) {
-                  add(ParamSymbol)
-                } else if (mods.hasFlag(MUTABLE) && !isField) {
-                  add(VarSymbol)
-                } else if (!isField) {
-                  add(ValSymbol)
-                } else if (mods.hasFlag(MUTABLE) && isField) {
-                  add(VarFieldSymbol)
-                } else if (isField) {
-                  add(ValFieldSymbol)
+      // if ((t.hasSymbolField && !t.symbol.isSynthetic) || !t.hasSymbolField) {
+      val descend =
+        if (p.overlaps(treeP)) {
+          try {
+            val sym = t.symbol
+            t match {
+              case Import(expr, selectors) =>
+                for (impSel <- selectors) {
+                  val start = impSel.namePos
+                  val end = start + impSel.name.decode.length()
+                  addAt(start, end, ImportedNameSymbol)
                 }
-              }
+                true
+              case Ident(_) =>
+                qualifySymbol(sym)
+                true
 
-            case TypeDef(mods, name, params, rhs) =>
-              if (sym != NoSymbol) {
-                if (mods.hasFlag(PARAM)) {
-                  add(TypeParamSymbol)
+              case Select(_, _) =>
+                qualifySymbol(sym)
+                true
+
+              case ValDef(mods, name, tpt, rhs) =>
+                if (sym != NoSymbol && !sym.isSynthetic) {
+                  val isField = sym.owner.isType || sym.owner.isModule
+
+                  if (mods.hasFlag(PARAM)) {
+                    add(ParamSymbol)
+                  } else if (mods.hasFlag(MUTABLE) && !isField) {
+                    add(VarSymbol)
+                  } else if (!isField) {
+                    add(ValSymbol)
+                  } else if (mods.hasFlag(MUTABLE) && isField) {
+                    add(VarFieldSymbol)
+                  } else if (isField) {
+                    add(ValFieldSymbol)
+                  }
+                  true
+                } else false
+
+              case TypeDef(mods, name, params, rhs) =>
+                if (sym != NoSymbol ^ !sym.isSynthetic) {
+                  if (mods.hasFlag(PARAM)) {
+                    add(TypeParamSymbol)
+                  }
+                  true
+                } else false
+
+              case t: ApplyImplicitView =>
+                add(ImplicitConversionSymbol)
+                true
+
+              case t: ApplyToImplicitArgs =>
+                add(ImplicitParamsSymbol)
+                true
+
+              case TypeTree() =>
+                if (!qualifySymbol(sym)) {
+                  if (t.tpe != null) {
+                    val start = treeP.startOrCursor
+                    val end = treeP.endOrCursor
+                    addAt(start, end, ObjectSymbol)
+                  }
                 }
-              }
-
-            case t: ApplyImplicitView => add(ImplicitConversionSymbol)
-            case t: ApplyToImplicitArgs => add(ImplicitParamsSymbol)
-
-            case TypeTree() =>
-              if (!qualifySymbol(sym)) {
-                if (t.tpe != null) {
-                  val start = treeP.startOrCursor
-                  val end = treeP.endOrCursor
-                  addAt(start, end, ObjectSymbol)
-                }
-              }
-            case Function(vparams, body) =>
-              logger.debug(s"vparams=$vparams, body=$body")
-            case _ =>
+                true
+              case Function(vparams, body) =>
+                logger.debug(s"vparams=$vparams, body=$body")
+                true
+              case _ =>
+                true
+            }
+          } catch {
+            case e: Throwable =>
+              log.error("Error in AST traverse:", e)
+              false
           }
-        } catch {
-          case e: Throwable =>
-            log.error("Error in AST traverse:", e)
-        }
-        log.debug(s"traverse: ---------------")
+        } else false
+      log.debug(s"traverse: ---------------")
+      if (descend)
         super.traverse(t)
-      }
+      // }
     }
   }
 
@@ -201,7 +240,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
     typed.get.left.toOption match {
       case Some(tree) =>
-        log.debug(s"symboldesignationsinregion: $tree")
+        // log.debug(s"symboldesignationsinregion: $tree")
+        // MyTraverser.traverse(tree)
         val traverser = new SymDesigsTraverser(p, requestedTypes.toSet)
         traverser.traverse(tree)
         SymbolDesignations(p.source.file.file, traverser.removeOverlaps(traverser.syms).toList)
