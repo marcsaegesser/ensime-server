@@ -222,6 +222,8 @@ case object OperatorFieldSymbol extends SourceSymbol
 case object VarSymbol extends SourceSymbol
 case object ValSymbol extends SourceSymbol
 case object FunctionCallSymbol extends SourceSymbol
+case object FlatmapFunctionCallSymbol extends SourceSymbol
+case object MapFunctionCallSymbol extends SourceSymbol
 case object ImplicitConversionSymbol extends SourceSymbol
 case object ImplicitParamsSymbol extends SourceSymbol
 case object DeprecatedSymbol extends SourceSymbol

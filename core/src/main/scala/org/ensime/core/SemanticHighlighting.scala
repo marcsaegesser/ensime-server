@@ -33,26 +33,37 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    def symDesigPriority(desig: SymbolDesignation): Int =
-      desig.symType match {
-        case ObjectSymbol => 100
-        case ClassSymbol => 100
-        case TraitSymbol => 100
-        case PackageSymbol => 100
-        case ConstructorSymbol => 100
-        case ImportedNameSymbol => 100
-        case TypeParamSymbol => 100
-        case ParamSymbol => 90
-        case VarFieldSymbol => 100
-        case ValFieldSymbol => 100
-        case OperatorFieldSymbol => 100
-        case VarSymbol => 100
-        case ValSymbol => 100
-        case FunctionCallSymbol => 91 //50
-        case ImplicitConversionSymbol => 0
-        case ImplicitParamsSymbol => 0
-        case DeprecatedSymbol => 500
-      }
+    implicit class SymbolDesignationOps(val desig: SymbolDesignation) {
+      def toPriority: Int =
+        desig.symType match {
+          case ObjectSymbol => 100
+          case ClassSymbol => 100
+          case TraitSymbol => 100
+          case PackageSymbol => 100
+          case ConstructorSymbol => 100
+          case ImportedNameSymbol => 100
+          case TypeParamSymbol => 100
+          case ParamSymbol => 90
+          case VarFieldSymbol => 100
+          case ValFieldSymbol => 100
+          case OperatorFieldSymbol => 100
+          case VarSymbol => 100
+          case ValSymbol => 100
+          case FunctionCallSymbol => 50
+          case FlatmapFunctionCallSymbol => 45
+          case MapFunctionCallSymbol => 45
+          case ImplicitConversionSymbol => 0
+          case ImplicitParamsSymbol => 0
+          case DeprecatedSymbol => 500
+        }
+
+      def fixupFunctionCallSymbol: SymbolDesignation =
+        desig.symType match {
+          case FlatmapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
+          case MapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
+          case _ => desig
+        }
+    }
 
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
       case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
@@ -61,18 +72,18 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         if (accum.previous.end > sym.start) // Overlap
           if (accum.previous == sym) accum // Remove duplicate
           else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
-            Accum(sym, accum.a += accum.previous)
-          else if (symDesigPriority(accum.previous) < symDesigPriority(sym)) {
+            Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
+          else if (accum.previous.toPriority < sym.toPriority) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
             Accum(sym, accum.a)
-          } else if (symDesigPriority(accum.previous) > symDesigPriority(sym)) {
+          } else if (accum.previous.toPriority > sym.toPriority) {
             log.debug(s"{${p.source}} Removing overlapping ${sym} which conflicts with ${accum.previous}")
             Accum(accum.previous, accum.a)
           } else {
             log.debug(s"{${p.source}} Allowing overlapping  $sym with conflicts with ${accum.previous}")
-            Accum(sym, accum.a += accum.previous)
+            Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
           }
-        else Accum(sym, accum.a += accum.previous)
+        else Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
       }
 
       if (l.size <= 1) l
@@ -149,6 +160,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             else if (sym.nameString == "apply" || sym.nameString == "update") { true }
             else if (sym.name.isOperatorName) {
               add(OperatorFieldSymbol)
+            } else if (sym.nameString == "flatMap") {
+              add(FlatmapFunctionCallSymbol)
+            } else if (sym.nameString == "map") {
+              add(MapFunctionCallSymbol)
             } else {
               add(FunctionCallSymbol)
             }
