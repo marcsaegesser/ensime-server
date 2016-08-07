@@ -89,7 +89,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       val treeP = t.pos
 
       def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
-        log.debug(s"addAt:  start=$start, end=$end, designation=$designation")
+        log.debug(s"addAt:  start=$start, end=$end, designation=$designation, included=${tpeSet.contains(designation)}")
         if (tpeSet.contains(designation)) {
           syms += SymbolDesignation(start, end, designation)
         }
@@ -113,7 +113,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           val start = treeP.startOrCursor
           val end = start + owner.name.length
           addAt(start, end, ObjectSymbol)
-        } else if (sym.isConstructor) {
+        } else if (sym.isConstructor && !treeP.isTransparent) {
           addAt(treeP.startOrCursor, treeP.endOrCursor, ConstructorSymbol)
         } else if (sym.isTypeParameterOrSkolem) {
           add(TypeParamSymbol)
@@ -213,7 +213,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                 } else false
 
               case TypeDef(mods, name, params, rhs) =>
-                if (sym != NoSymbol ^ !sym.isSynthetic) {
+                logger.debug(s"traverseX:  TypeDef($mods, $name, $params, $rhs), ${sym.isSynthetic}, ${sym == NoSymbol}, ${mods.hasFlag(PARAM)}")
+                if (!(sym == NoSymbol || sym.isSynthetic)) {
                   if (mods.hasFlag(PARAM)) {
                     add(TypeParamSymbol)
                   }
@@ -229,6 +230,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                 true
 
               case TypeTree() =>
+                logger.debug(s"traverse:  TypeTree - ${sym.isSynthetic}")
                 if (!qualifySymbol(sym)) {
                   if (t.tpe != null) {
                     val start = treeP.startOrCursor
@@ -268,6 +270,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       case Some(tree) =>
         // log.debug(s"symboldesignationsinregion: $tree")
         // MyTraverser.traverse(tree)
+        log.debug(s"symbolDesignationsInRegion:  types=$requestedTypes")
         val traverser = new SymDesigsTraverser(p, requestedTypes.toSet)
         traverser.traverse(tree)
         SymbolDesignations(p.source.file.file, traverser.removeOverlaps(traverser.syms).toList)
