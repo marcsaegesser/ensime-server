@@ -33,12 +33,34 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
+    def symPriority(symbol: SourceSymbol): Int =
+      symbol match {
+        case ObjectSymbol => 100
+        case ClassSymbol => 100
+        case TraitSymbol => 100
+        case PackageSymbol => 100
+        case ConstructorSymbol => 100
+        case ImportedNameSymbol => 100
+        case TypeParamSymbol => 100
+        case ParamSymbol => 90
+        case VarFieldSymbol => 100
+        case ValFieldSymbol => 100
+        case OperatorFieldSymbol => 100
+        case VarSymbol => 100
+        case ValSymbol => 100
+        case FunctionCallSymbol => 50
+        case ImplicitConversionSymbol => 0
+        case ImplicitParamsSymbol => 0
+        case DeprecatedSymbol => 500
+      }
+
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
       case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
       def overlapAllowed(sym: SymbolDesignation): Boolean = sym.symType == ImplicitConversionSymbol || sym.symType == ImplicitParamsSymbol
       def helper(accum: Accum, sym: SymbolDesignation): Accum = {
         if (accum.previous.end > sym.start) // Overlap
-          if (overlapAllowed(accum.previous) || overlapAllowed(sym))
+          if (accum.previous == sym) accum // Remove duplicate
+          else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
             Accum(sym, accum.a += accum.previous)
           else if (accum.previous.symType == FunctionCallSymbol) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
@@ -81,9 +103,11 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
-        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}, ${sym.parentSymbols}")
+        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}, ${sym.parentSymbols}, ${sym.isSynthetic}, ${sym.isPackageObject}")
         if (sym == NoSymbol) {
           false
+        } else if (sym.isPackageObject || sym.isPackageClass) {
+          true // compiler adds `package` behind package object paths
         } else if (sym.isCaseApplyOrUnapply) {
           val owner = sym.owner
           val start = treeP.startOrCursor
