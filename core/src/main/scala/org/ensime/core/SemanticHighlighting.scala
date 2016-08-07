@@ -33,8 +33,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    def symPriority(symbol: SourceSymbol): Int =
-      symbol match {
+    def symDesigPriority(desig: SymbolDesignation): Int =
+      desig.symType match {
         case ObjectSymbol => 100
         case ClassSymbol => 100
         case TraitSymbol => 100
@@ -48,7 +48,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         case OperatorFieldSymbol => 100
         case VarSymbol => 100
         case ValSymbol => 100
-        case FunctionCallSymbol => 50
+        case FunctionCallSymbol => 91 //50
         case ImplicitConversionSymbol => 0
         case ImplicitParamsSymbol => 0
         case DeprecatedSymbol => 500
@@ -62,12 +62,12 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           if (accum.previous == sym) accum // Remove duplicate
           else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
             Accum(sym, accum.a += accum.previous)
-          else if (accum.previous.symType == FunctionCallSymbol) {
+          else if (symDesigPriority(accum.previous) < symDesigPriority(sym)) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
             Accum(sym, accum.a)
-          } else if (sym.symType == FunctionCallSymbol) {
-            log.debug(s"{${p.source}} Removing overlapping $sym with conflicts with ${accum.previous}")
-            accum
+          } else if (symDesigPriority(accum.previous) > symDesigPriority(sym)) {
+            log.debug(s"{${p.source}} Removing overlapping ${sym} which conflicts with ${accum.previous}")
+            Accum(accum.previous, accum.a)
           } else {
             log.debug(s"{${p.source}} Allowing overlapping  $sym with conflicts with ${accum.previous}")
             Accum(sym, accum.a += accum.previous)
@@ -152,6 +152,8 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             } else {
               add(FunctionCallSymbol)
             }
+          } else if (sym.isSynthetic) {
+            true
           } else if (sym.isVariable && sym.isLocalToBlock) {
             add(VarSymbol)
           } else if (sym.isValue && sym.isLocalToBlock) {
