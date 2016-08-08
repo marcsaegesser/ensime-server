@@ -202,7 +202,7 @@ object SourceSymbol {
   val allSymbols: List[SourceSymbol] = List(
     ObjectSymbol, ClassSymbol, TraitSymbol, PackageSymbol, ConstructorSymbol, ImportedNameSymbol, TypeParamSymbol,
     ParamSymbol, VarFieldSymbol, ValFieldSymbol, OperatorFieldSymbol, VarSymbol, ValSymbol, FunctionCallSymbol,
-    FlatmapFunctionCallSymbol, MapFunctionCallSymbol, ImplicitConversionSymbol, ImplicitParamsSymbol, DeprecatedSymbol
+    ImplicitConversionSymbol, ImplicitParamsSymbol, DeprecatedSymbol
   )
 }
 
@@ -281,7 +281,8 @@ final case class SymbolDesignations(
 final case class SymbolDesignation(
   start: Int,
   end: Int,
-  symType: SourceSymbol
+  symType: SourceSymbol,
+  priority: Int = 100
 )
 
 final case class SymbolInfo(

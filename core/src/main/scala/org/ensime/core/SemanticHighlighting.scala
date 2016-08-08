@@ -33,37 +33,42 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    implicit class SymbolDesignationOps(val desig: SymbolDesignation) {
-      def toPriority: Int =
-        desig.symType match {
-          case ObjectSymbol => 100
-          case ClassSymbol => 100
-          case TraitSymbol => 100
-          case PackageSymbol => 100
-          case ConstructorSymbol => 100
-          case ImportedNameSymbol => 100
-          case TypeParamSymbol => 100
-          case ParamSymbol => 90
-          case VarFieldSymbol => 100
-          case ValFieldSymbol => 100
-          case OperatorFieldSymbol => 100
-          case VarSymbol => 100
-          case ValSymbol => 100
-          case FunctionCallSymbol => 50
-          case FlatmapFunctionCallSymbol => 45
-          case MapFunctionCallSymbol => 45
-          case ImplicitConversionSymbol => 0
-          case ImplicitParamsSymbol => 0
-          case DeprecatedSymbol => 500
-        }
+    val DefaultSymbolPriority = 100
+    val ParamSymbolPriority = 90
+    val FunctionCallSymbolPriority = 50
+    val FunctionCallSymbolPriorityLow = 45
+    val DeprecatedSymbolPriority = 500
+    // implicit class SymbolDesignationOps(val desig: SymbolDesignation) {
+    //   def toPriority: Int =
+    //     desig.symType match {
+    //       case ObjectSymbol => 100
+    //       case ClassSymbol => 100
+    //       case TraitSymbol => 100
+    //       case PackageSymbol => 100
+    //       case ConstructorSymbol => 100
+    //       case ImportedNameSymbol => 100
+    //       case TypeParamSymbol => 100
+    //       case ParamSymbol => 90
+    //       case VarFieldSymbol => 100
+    //       case ValFieldSymbol => 100
+    //       case OperatorFieldSymbol => 100
+    //       case VarSymbol => 100
+    //       case ValSymbol => 100
+    //       case FunctionCallSymbol => 50
+    //       case FlatmapFunctionCallSymbol => 45
+    //       case MapFunctionCallSymbol => 45
+    //       case ImplicitConversionSymbol => 0
+    //       case ImplicitParamsSymbol => 0
+    //       case DeprecatedSymbol => 500
+    //     }
 
-      def fixupFunctionCallSymbol: SymbolDesignation =
-        desig.symType match {
-          case FlatmapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
-          case MapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
-          case _ => desig
-        }
-    }
+    //   def fixupFunctionCallSymbol: SymbolDesignation =
+    //     desig.symType match {
+    //       case FlatmapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
+    //       case MapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
+    //       case _ => desig
+    //     }
+    // }
 
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
       case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
@@ -72,18 +77,18 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         if (accum.previous.end > sym.start) // Overlap
           if (accum.previous == sym) accum // Remove duplicate
           else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
-            Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
-          else if (accum.previous.toPriority < sym.toPriority) {
+            Accum(sym, accum.a += accum.previous)
+          else if (accum.previous.priority < sym.priority) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
             Accum(sym, accum.a)
-          } else if (accum.previous.toPriority > sym.toPriority) {
+          } else if (accum.previous.priority > sym.priority) {
             log.debug(s"{${p.source}} Removing overlapping ${sym} which conflicts with ${accum.previous}")
             Accum(accum.previous, accum.a)
           } else {
             log.debug(s"{${p.source}} Allowing overlapping  $sym with conflicts with ${accum.previous}")
-            Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
+            Accum(sym, accum.a += accum.previous)
           }
-        else Accum(sym, accum.a += accum.previous.fixupFunctionCallSymbol)
+        else Accum(sym, accum.a += accum.previous)
       }
 
       if (l.size <= 1) l
@@ -99,18 +104,18 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       log.debug(s"traverse: kids=${t.children.map { _.summaryString }}")
       val treeP = t.pos
 
-      def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
+      def addAt(start: Int, end: Int, designation: SourceSymbol, priority: Int = DefaultSymbolPriority): Boolean = {
         log.debug(s"addAt:  start=$start, end=$end, designation=$designation, included=${tpeSet.contains(designation)}")
         if (tpeSet.contains(designation)) {
-          syms += SymbolDesignation(start, end, designation)
+          syms += SymbolDesignation(start, end, designation, priority)
         }
         true
       }
 
-      def add(designation: SourceSymbol): Boolean = {
+      def add(designation: SourceSymbol, priority: Int = DefaultSymbolPriority): Boolean = {
         log.debug(s"add:  designation=$designation, pos=${t.namePosition()}")
         val pos = t.namePosition()
-        addAt(pos.startOrCursor, pos.endOrCursor, designation)
+        addAt(pos.startOrCursor, pos.endOrCursor, designation, priority)
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
@@ -129,15 +134,15 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         } else if (sym.isTypeParameterOrSkolem) {
           add(TypeParamSymbol)
         } else if (sym.hasFlag(PARAM)) {
-          add(ParamSymbol)
+          add(ParamSymbol, ParamSymbolPriority)
         } else {
 
           if (sym.ownerChain.exists(_.isDeprecated)) {
-            add(DeprecatedSymbol)
+            add(DeprecatedSymbol, DeprecatedSymbolPriority)
           }
 
           if (sym.ownerChain.exists(_.annotations.exists(_.atp.toString().endsWith("deprecating")))) {
-            add(DeprecatedSymbol)
+            add(DeprecatedSymbol, DeprecatedSymbolPriority)
           }
 
           if (sym.hasFlag(ACCESSOR)) {
@@ -161,9 +166,9 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             else if (sym.name.isOperatorName) {
               add(OperatorFieldSymbol)
             } else if (sym.nameString == "flatMap") {
-              add(FlatmapFunctionCallSymbol)
+              add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
             } else if (sym.nameString == "map") {
-              add(MapFunctionCallSymbol)
+              add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
             } else {
               add(FunctionCallSymbol)
             }
@@ -214,7 +219,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                   val isField = sym.owner.isType || sym.owner.isModule
 
                   if (mods.hasFlag(PARAM)) {
-                    add(ParamSymbol)
+                    add(ParamSymbol, ParamSymbolPriority)
                   } else if (mods.hasFlag(MUTABLE) && !isField) {
                     add(VarSymbol)
                   } else if (!isField) {

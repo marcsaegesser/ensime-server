@@ -569,4 +569,55 @@ class SemanticHighlightingSpec extends EnsimeSpec
       (FunctionCallSymbol, "foo")
     ))
   }
+
+  it should "highlight for comprehensions" in withPresCompiler { (config, cc) =>
+    val sds = getSymbolDesignations(
+      config, cc, """
+            package com.example
+            class Test {
+              for {
+                x <- List(1, 2, 3)
+                y <- List.fill(x)(x)
+              } yield y*2
+            }
+          """,
+      List(ObjectSymbol, FunctionCallSymbol, ParamSymbol, OperatorFieldSymbol)
+    )
+    sds should ===(List(
+      (ParamSymbol, "x"),
+      (ObjectSymbol, "List"),
+      (ParamSymbol, "y"),
+      (ObjectSymbol, "List"),
+      (FunctionCallSymbol, "fill"),
+      (ParamSymbol, "x"),
+      (ParamSymbol, "x"),
+      (ParamSymbol, "y"),
+      (OperatorFieldSymbol, "*")
+    ))
+  }
+
+  it should "highlight nested flatmap and map" in withPresCompiler { (config, cc) =>
+    val sds = getSymbolDesignations(
+      config, cc, """
+            package com.example
+            class Test {
+              List(1, 2, 3).flatMap((x: Int) => List.fill(x)(x)).map((y: Int) => y * 2)
+            }
+          """,
+      List(ObjectSymbol, FunctionCallSymbol, ParamSymbol, OperatorFieldSymbol)
+    )
+    sds should ===(List(
+      (ObjectSymbol, "List"),
+      (FunctionCallSymbol, "flatMap"),
+      (ParamSymbol, "x"),
+      (ObjectSymbol, "List"),
+      (FunctionCallSymbol, "fill"),
+      (ParamSymbol, "x"),
+      (ParamSymbol, "x"),
+      (FunctionCallSymbol, "map"),
+      (ParamSymbol, "y"),
+      (ParamSymbol, "y"),
+      (OperatorFieldSymbol, "*")
+    ))
+  }
 }
