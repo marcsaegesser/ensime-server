@@ -104,6 +104,9 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       log.debug(s"traverse: kids=${t.children.map { _.summaryString }}")
       val treeP = t.pos
 
+      def matchesSource(s: String): Boolean =
+        p.source.content.subSequence(t.namePosition.start, t.namePosition.end).toString == s
+
       def addAt(start: Int, end: Int, designation: SourceSymbol, priority: Int = DefaultSymbolPriority): Boolean = {
         log.debug(s"addAt:  start=$start, end=$end, designation=$designation, included=${tpeSet.contains(designation)}")
         if (tpeSet.contains(designation)) {
@@ -160,18 +163,21 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             }
           } else if (sym.hasFlag(PARAMACCESSOR)) {
             add(ValFieldSymbol)
-          } else if (sym.isMethod) {
-            if (sym.isSynthetic) false
-            else if (sym.nameString == "apply" || sym.nameString == "update") { true }
-            else if (sym.name.isOperatorName) {
-              add(OperatorFieldSymbol)
-            } else if (sym.nameString == "flatMap") {
-              add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
-            } else if (sym.nameString == "map") {
-              add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
-            } else {
-              add(FunctionCallSymbol)
-            }
+          } else if (sym.isMethod && matchesSource(sym.name.toString)) {
+            add(FunctionCallSymbol)
+            // if (sym.isSynthetic) false
+            // else if (sym.nameString == "apply" || sym.nameString == "update") { true }
+            // else if (sym.name.isOperatorName) {
+            //   add(OperatorFieldSymbol)
+            // } else if (sym.nameString == "flatMap") {
+            //   val source = new String(p.source.content, t.namePosition.start, 7)
+            //   logger.debug(s"qualifySymbol:  flatMap - source=$source")
+            //   add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
+            // } else if (sym.nameString == "map") {
+            //   add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
+            // } else {
+            //   add(FunctionCallSymbol)
+            // }
           } else if (sym.isSynthetic) {
             true
           } else if (sym.isVariable && sym.isLocalToBlock) {
