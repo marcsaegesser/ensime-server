@@ -202,7 +202,7 @@ object SourceSymbol {
   val allSymbols: List[SourceSymbol] = List(
     ObjectSymbol, ClassSymbol, TraitSymbol, PackageSymbol, ConstructorSymbol, ImportedNameSymbol, TypeParamSymbol,
     ParamSymbol, VarFieldSymbol, ValFieldSymbol, OperatorFieldSymbol, VarSymbol, ValSymbol, FunctionCallSymbol,
-    ImplicitConversionSymbol, ImplicitParamsSymbol, DeprecatedSymbol
+    FlatmapFunctionCallSymbol, MapFunctionCallSymbol, ImplicitConversionSymbol, ImplicitParamsSymbol, DeprecatedSymbol
   )
 }
 
