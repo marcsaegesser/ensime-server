@@ -38,37 +38,6 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val FunctionCallSymbolPriority = 50
     val FunctionCallSymbolPriorityLow = 45
     val DeprecatedSymbolPriority = 500
-    // implicit class SymbolDesignationOps(val desig: SymbolDesignation) {
-    //   def toPriority: Int =
-    //     desig.symType match {
-    //       case ObjectSymbol => 100
-    //       case ClassSymbol => 100
-    //       case TraitSymbol => 100
-    //       case PackageSymbol => 100
-    //       case ConstructorSymbol => 100
-    //       case ImportedNameSymbol => 100
-    //       case TypeParamSymbol => 100
-    //       case ParamSymbol => 90
-    //       case VarFieldSymbol => 100
-    //       case ValFieldSymbol => 100
-    //       case OperatorFieldSymbol => 100
-    //       case VarSymbol => 100
-    //       case ValSymbol => 100
-    //       case FunctionCallSymbol => 50
-    //       case FlatmapFunctionCallSymbol => 45
-    //       case MapFunctionCallSymbol => 45
-    //       case ImplicitConversionSymbol => 0
-    //       case ImplicitParamsSymbol => 0
-    //       case DeprecatedSymbol => 500
-    //     }
-
-    //   def fixupFunctionCallSymbol: SymbolDesignation =
-    //     desig.symType match {
-    //       case FlatmapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
-    //       case MapFunctionCallSymbol => desig.copy(symType = FunctionCallSymbol)
-    //       case _ => desig
-    //     }
-    // }
 
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
       case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
@@ -127,16 +96,16 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           false
         } else if (sym.isPackageObject || sym.isPackageClass) {
           true // compiler adds `package` behind package object paths
-        } else if (sym.isCaseApplyOrUnapply) {
+        } else if (sym.isCaseApplyOrUnapply && matchesSource(sym.nameString)) {
           val owner = sym.owner
           val start = treeP.startOrCursor
           val end = start + owner.name.length
           addAt(start, end, ObjectSymbol)
         } else if (sym.isConstructor && !treeP.isTransparent) {
           addAt(treeP.startOrCursor, treeP.endOrCursor, ConstructorSymbol)
-        } else if (sym.isTypeParameterOrSkolem) {
+        } else if (sym.isTypeParameterOrSkolem && matchesSource(sym.nameString)) {
           add(TypeParamSymbol)
-        } else if (sym.hasFlag(PARAM)) {
+        } else if (sym.hasFlag(PARAM) && matchesSource(sym.nameString)) {
           add(ParamSymbol, ParamSymbolPriority)
         } else {
 
@@ -148,7 +117,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             add(DeprecatedSymbol, DeprecatedSymbolPriority)
           }
 
-          if (sym.hasFlag(ACCESSOR)) {
+          if (sym.hasFlag(ACCESSOR) && matchesSource(sym.nameString)) {
             val under = sym.accessed
             // The compiler mis-reports lazy val fields
             // as variables. Lazy can only be a val anyway.
@@ -163,22 +132,16 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             }
           } else if (sym.hasFlag(PARAMACCESSOR)) {
             add(ValFieldSymbol)
-          } else if (sym.isMethod && matchesSource(sym.name.toString)) {
-            add(FunctionCallSymbol)
-            // if (sym.isSynthetic) false
-            // else if (sym.nameString == "apply" || sym.nameString == "update") { true }
-            // else if (sym.name.isOperatorName) {
-            //   add(OperatorFieldSymbol)
-            // } else if (sym.nameString == "flatMap") {
-            //   val source = new String(p.source.content, t.namePosition.start, 7)
-            //   logger.debug(s"qualifySymbol:  flatMap - source=$source")
-            //   add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
-            // } else if (sym.nameString == "map") {
-            //   add(FunctionCallSymbol, FunctionCallSymbolPriorityLow)
-            // } else {
-            //   add(FunctionCallSymbol)
-            // }
+          } else if (sym.isMethod) {
+            if (sym.name.isOperatorName)
+              add(OperatorFieldSymbol)
+            else if (matchesSource(sym.nameString))
+              add(FunctionCallSymbol)
+            else
+              true
           } else if (sym.isSynthetic) {
+            true
+          } else if (!matchesSource(sym.nameString)) {
             true
           } else if (sym.isVariable && sym.isLocalToBlock) {
             add(VarSymbol)
@@ -229,14 +192,16 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                   } else if (mods.hasFlag(MUTABLE) && !isField) {
                     add(VarSymbol)
                   } else if (!isField) {
-                    add(ValSymbol)
+                    if (matchesSource(sym.nameString))
+                      add(ValSymbol)
+                    else true
                   } else if (mods.hasFlag(MUTABLE) && isField) {
                     add(VarFieldSymbol)
                   } else if (isField) {
                     add(ValFieldSymbol)
                   }
-                  true
-                } else false
+                }
+                true
 
               case TypeDef(mods, name, params, rhs) =>
                 logger.debug(s"traverseX:  TypeDef($mods, $name, $params, $rhs), ${sym.isSynthetic}, ${sym == NoSymbol}, ${mods.hasFlag(PARAM)}")
@@ -245,7 +210,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                     add(TypeParamSymbol)
                   }
                   true
-                } else false
+                } else true
 
               case t: ApplyImplicitView =>
                 add(ImplicitConversionSymbol)
@@ -257,7 +222,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
               case TypeTree() =>
                 logger.debug(s"traverse:  TypeTree - ${sym.isSynthetic}")
-                if (!qualifySymbol(sym)) {
+                if (!qualifySymbol(sym) && matchesSource(sym.nameString)) {
                   if (t.tpe != null) {
                     val start = treeP.startOrCursor
                     val end = treeP.endOrCursor
