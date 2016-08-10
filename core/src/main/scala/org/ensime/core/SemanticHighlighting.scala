@@ -33,11 +33,13 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    val DefaultSymbolPriority = 100
-    val ParamSymbolPriority = 90
-    val FunctionCallSymbolPriority = 50
-    val FunctionCallSymbolPriorityLow = 45
-    val DeprecatedSymbolPriority = 500
+    def symbolPriority(sym: SourceSymbol): Int =
+      sym match {
+        case ParamSymbol        => 90
+        case FunctionCallSymbol => 50
+        case DeprecatedSymbol   => 200
+        case _                  => 100
+      }
 
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
       case class Accum(previous: SymbolDesignation, a: ListBuffer[SymbolDesignation])
@@ -47,10 +49,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           if (accum.previous == sym) accum // Remove duplicate
           else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
             Accum(sym, accum.a += accum.previous)
-          else if (accum.previous.priority < sym.priority) {
+          else if (symbolPriority(accum.previous.symType)< symbolPriority(sym.symType)) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
             Accum(sym, accum.a)
-          } else if (accum.previous.priority > sym.priority) {
+          } else if (symbolPriority(accum.previous.symType) > symbolPriority(sym.symType)) {
             log.debug(s"{${p.source}} Removing overlapping ${sym} which conflicts with ${accum.previous}")
             Accum(accum.previous, accum.a)
           } else {
@@ -76,18 +78,18 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       def matchesSource(s: String): Boolean =
         p.source.content.subSequence(t.namePosition.start, t.namePosition.end).toString == s
 
-      def addAt(start: Int, end: Int, designation: SourceSymbol, priority: Int = DefaultSymbolPriority): Boolean = {
+      def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
         log.debug(s"addAt:  start=$start, end=$end, designation=$designation, included=${tpeSet.contains(designation)}")
         if (tpeSet.contains(designation)) {
-          syms += SymbolDesignation(start, end, designation, priority)
+          syms += SymbolDesignation(start, end, designation)
         }
         true
       }
 
-      def add(designation: SourceSymbol, priority: Int = DefaultSymbolPriority): Boolean = {
+      def add(designation: SourceSymbol): Boolean = {
         log.debug(s"add:  designation=$designation, pos=${t.namePosition()}")
         val pos = t.namePosition()
-        addAt(pos.startOrCursor, pos.endOrCursor, designation, priority)
+        addAt(pos.startOrCursor, pos.endOrCursor, designation)
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
@@ -106,15 +108,15 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         } else if (sym.isTypeParameterOrSkolem && matchesSource(sym.nameString)) {
           add(TypeParamSymbol)
         } else if (sym.hasFlag(PARAM) && matchesSource(sym.nameString)) {
-          add(ParamSymbol, ParamSymbolPriority)
+          add(ParamSymbol)
         } else {
 
           if (sym.ownerChain.exists(_.isDeprecated)) {
-            add(DeprecatedSymbol, DeprecatedSymbolPriority)
+            add(DeprecatedSymbol)
           }
 
           if (sym.ownerChain.exists(_.annotations.exists(_.atp.toString().endsWith("deprecating")))) {
-            add(DeprecatedSymbol, DeprecatedSymbolPriority)
+            add(DeprecatedSymbol)
           }
 
           if (sym.hasFlag(ACCESSOR) && matchesSource(sym.nameString)) {
@@ -185,7 +187,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
                 val isField = sym.owner.isType || sym.owner.isModule
 
                 if (mods.hasFlag(PARAM)) {
-                  add(ParamSymbol, ParamSymbolPriority)
+                  add(ParamSymbol)
                 } else if (mods.hasFlag(MUTABLE) && !isField) {
                   add(VarSymbol)
                 } else if (!isField) {

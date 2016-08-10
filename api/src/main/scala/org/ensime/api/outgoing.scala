@@ -281,8 +281,7 @@ final case class SymbolDesignations(
 final case class SymbolDesignation(
   start: Int,
   end: Int,
-  symType: SourceSymbol,
-  priority: Int = 100
+  symType: SourceSymbol
 )
 
 final case class SymbolInfo(
