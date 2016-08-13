@@ -75,8 +75,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       log.debug(s"traverse: kids=${t.children.map { _.summaryString }}")
       val treeP = t.pos
 
-      def matchesSource(s: String): Boolean =
-        p.source.content.subSequence(t.namePosition.start, t.namePosition.end).toString == s
+      def matchesSource(s: String): Boolean = {
+        val end = Math.min(t.namePosition.end, t.namePosition.start + s.length)
+        p.source.content.subSequence(t.namePosition.start, end).toString == s
+      }
 
       def addAt(start: Int, end: Int, designation: SourceSymbol): Boolean = {
         log.debug(s"addAt:  start=$start, end=$end, designation=$designation, included=${tpeSet.contains(designation)}")
@@ -93,12 +95,12 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
-        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}, ${sym.parentSymbols}, ${sym.isSynthetic}, ${sym.isPackageObject}")
+        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP}, ${sym.parentSymbols}, ${sym.isSynthetic}, ${sym.isPackageObject}")
+        log.debug(s"qualifySymbol:  ${sym.nameString} == ${matchesSource(sym.nameString)}")
         if (sym == NoSymbol) {
           false
-        } /* else if (sym.isPackageObject || sym.isPackageClass) {
-          true // compiler adds `package` behind package object paths
-        }*/ else if (sym.isCaseApplyOrUnapply && matchesSource(sym.nameString)) {
+        } else if (sym.isCaseApplyOrUnapply) {
+          logger.debug(s"qualifySymbol:  owner=${sym.owner}")
           val owner = sym.owner
           val start = treeP.startOrCursor
           val end = start + owner.name.length
@@ -119,7 +121,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             add(DeprecatedSymbol)
           }
 
-          if (sym.hasFlag(ACCESSOR) && matchesSource(sym.nameString)) {
+          if (sym.hasFlag(ACCESSOR) /* && matchesSource(sym.nameString)*/ ) {
             val under = sym.accessed
             // The compiler mis-reports lazy val fields
             // as variables. Lazy can only be a val anyway.
@@ -143,9 +145,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
               true
           } else if (sym.isSynthetic) {
             true
-          } else if (!matchesSource(sym.nameString)) {
+          } /* else if (!matchesSource(sym.nameString)) {
+            log.debug(s"qualifySymbol:  $sym does not match source ${p.source.content.subSequence(t.namePosition.start, t.namePosition.end).toString}.")
             true
-          } else if (sym.isVariable && sym.isLocalToBlock) {
+          }*/ else if (sym.isVariable && sym.isLocalToBlock) {
             add(VarSymbol)
           } else if (sym.isValue && sym.isLocalToBlock) {
             add(ValSymbol)
@@ -217,7 +220,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
             case TypeTree() =>
               logger.debug(s"traverse:  TypeTree - ${sym.isSynthetic}")
-              if (!qualifySymbol(sym) && matchesSource(sym.nameString)) {
+              if (!qualifySymbol(sym)) {
                 if (t.tpe != null) {
                   val start = treeP.startOrCursor
                   val end = treeP.endOrCursor
