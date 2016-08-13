@@ -33,12 +33,12 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
     val log = LoggerFactory.getLogger(getClass)
     val syms = ListBuffer[SymbolDesignation]()
 
-    def symbolPriority(sym: SourceSymbol): Int =
-      sym match {
-        case ParamSymbol        => 90
+    def symbolPriority(sym: SymbolDesignation): Int =
+      sym.symType match {
+        case ParamSymbol => 90
         case FunctionCallSymbol => 50
-        case DeprecatedSymbol   => 200
-        case _                  => 100
+        case DeprecatedSymbol => 200
+        case _ => 100
       }
 
     def removeOverlaps(l: ListBuffer[SymbolDesignation]): ListBuffer[SymbolDesignation] = {
@@ -49,10 +49,10 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
           if (accum.previous == sym) accum // Remove duplicate
           else if (overlapAllowed(accum.previous) || overlapAllowed(sym))
             Accum(sym, accum.a += accum.previous)
-          else if (symbolPriority(accum.previous.symType)< symbolPriority(sym.symType)) {
+          else if (symbolPriority(accum.previous) < symbolPriority(sym)) {
             log.debug(s"{${p.source}} Removing overlapping ${accum.previous} which conflicts with $sym")
             Accum(sym, accum.a)
-          } else if (symbolPriority(accum.previous.symType) > symbolPriority(sym.symType)) {
+          } else if (symbolPriority(accum.previous) > symbolPriority(sym)) {
             log.debug(s"{${p.source}} Removing overlapping ${sym} which conflicts with ${accum.previous}")
             Accum(accum.previous, accum.a)
           } else {
@@ -96,9 +96,9 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
         log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP.startOrCursor}, ${sym.parentSymbols}, ${sym.isSynthetic}, ${sym.isPackageObject}")
         if (sym == NoSymbol) {
           false
-        } else if (sym.isPackageObject || sym.isPackageClass) {
+        } /* else if (sym.isPackageObject || sym.isPackageClass) {
           true // compiler adds `package` behind package object paths
-        } else if (sym.isCaseApplyOrUnapply && matchesSource(sym.nameString)) {
+        }*/ else if (sym.isCaseApplyOrUnapply && matchesSource(sym.nameString)) {
           val owner = sym.owner
           val start = treeP.startOrCursor
           val end = start + owner.name.length
