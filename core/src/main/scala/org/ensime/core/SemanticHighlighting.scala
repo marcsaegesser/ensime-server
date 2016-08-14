@@ -95,7 +95,7 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
 
       def qualifySymbol(sym: Symbol): Boolean = {
-        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP}, ${sym.parentSymbols}, ${sym.isSynthetic}, ${sym.isPackageObject}")
+        log.debug(s"qualifysymbol:  sym=$sym, flags=${sym.flagString}, pos=${treeP}, ${sym.parentSymbols}, ${sym.isSynthetic}")
         log.debug(s"qualifySymbol:  ${sym.nameString} == ${matchesSource(sym.nameString)}")
         if (sym == NoSymbol) {
           false
@@ -156,9 +156,9 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
             add(PackageSymbol)
           } else if (sym.isTrait) {
             add(TraitSymbol)
-          } else if (sym.isClass) {
+          } else if (sym.isClass && matchesSource(sym.nameString)) {
             add(ClassSymbol)
-          } else if (sym.isModule) {
+          } else if (sym.isModule && matchesSource(sym.nameString)) {
             add(ObjectSymbol)
           } else {
             false
@@ -241,7 +241,6 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
       }
       log.debug(s"traverse: ---------------")
       super.traverse(t)
-      // }
     }
   }
 
