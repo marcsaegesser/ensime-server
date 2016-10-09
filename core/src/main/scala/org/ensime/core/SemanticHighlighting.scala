@@ -168,79 +168,88 @@ class SemanticHighlighting(val global: RichPresentationCompiler) extends Compile
 
       // logger.debug(s"traverse: isTransparent=${treeP.isTransparent}, p.overlaps=${p.overlaps(treeP)}, p=${p}, treeP=$treeP")
       // if ((t.hasSymbolField && !t.symbol.isSynthetic) || !t.hasSymbolField) {
-      if (p.overlaps(treeP)) {
-        try {
-          val sym = t.symbol
-          t match {
-            case Import(expr, selectors) =>
-              for (impSel <- selectors) {
-                val start = impSel.namePos
-                val end = start + impSel.name.decode.length()
-                addAt(start, end, ImportedNameSymbol)
-              }
-
-            case Ident(_) =>
-              qualifySymbol(sym)
-
-            case Select(_, _) =>
-              qualifySymbol(sym)
-
-            case ValDef(mods, name, tpt, rhs) =>
-              if (sym != NoSymbol && !sym.isSynthetic) {
-                val isField = sym.owner.isType || sym.owner.isModule
-
-                if (mods.hasFlag(PARAM)) {
-                  add(ParamSymbol)
-                } else if (mods.hasFlag(MUTABLE) && !isField) {
-                  add(VarSymbol)
-                } else if (!isField) {
-                  if (matchesSource(sym.nameString))
-                    add(ValSymbol)
-                  else true
-                } else if (mods.hasFlag(MUTABLE) && isField) {
-                  add(VarFieldSymbol)
-                } else if (isField) {
-                  add(ValFieldSymbol)
+      val descend =
+        if (p.overlaps(treeP)) {
+          try {
+            val sym = t.symbol
+            t match {
+              case Import(expr, selectors) =>
+                for (impSel <- selectors) {
+                  val start = impSel.namePos
+                  val end = start + impSel.name.decode.length()
+                  addAt(start, end, ImportedNameSymbol)
                 }
-              }
+                true
 
-            case TypeDef(mods, name, params, rhs) =>
-              logger.debug(s"traverseX:  TypeDef($mods, $name, $params, $rhs), ${sym.isSynthetic}, ${sym == NoSymbol}, ${mods.hasFlag(PARAM)}")
-              if (!(sym == NoSymbol || sym.isSynthetic)) {
-                if (mods.hasFlag(PARAM)) {
-                  add(TypeParamSymbol)
+              case Ident(_) =>
+                qualifySymbol(sym)
+
+              case Select(_, _) =>
+                qualifySymbol(sym)
+
+              case ValDef(mods, name, tpt, rhs) =>
+                if (sym != NoSymbol && !sym.isSynthetic) {
+                  val isField = sym.owner.isType || sym.owner.isModule
+
+                  if (mods.hasFlag(PARAM)) {
+                    add(ParamSymbol)
+                  } else if (mods.hasFlag(MUTABLE) && !isField) {
+                    add(VarSymbol)
+                  } else if (!isField) {
+                    if (matchesSource(sym.nameString))
+                      add(ValSymbol)
+                    else true
+                  } else if (mods.hasFlag(MUTABLE) && isField) {
+                    add(VarFieldSymbol)
+                  } else if (isField) {
+                    add(ValFieldSymbol)
+                  }
                 }
-              }
+                true
 
-            case t: ApplyImplicitView =>
-              add(ImplicitConversionSymbol)
-
-            case t: ApplyToImplicitArgs =>
-              add(ImplicitParamsSymbol)
-
-            case TypeTree() =>
-              logger.debug(s"traverse:  TypeTree - ${sym.isSynthetic}")
-              if (!qualifySymbol(sym)) {
-                if (t.tpe != null) {
-                  val start = treeP.startOrCursor
-                  val end = treeP.endOrCursor
-                  addAt(start, end, ObjectSymbol)
+              case TypeDef(mods, name, params, rhs) =>
+                logger.debug(s"traverseX:  TypeDef($mods, $name, $params, $rhs), ${sym.isSynthetic}, ${sym == NoSymbol}, ${mods.hasFlag(PARAM)}")
+                if (!(sym == NoSymbol || sym.isSynthetic)) {
+                  if (mods.hasFlag(PARAM)) {
+                    add(TypeParamSymbol)
+                  }
                 }
-              }
+                true
 
-            case Function(vparams, body) =>
-              logger.debug(s"vparams=$vparams, body=$body")
+              case t: ApplyImplicitView =>
+                add(ImplicitConversionSymbol)
 
-            case _ =>
+              case t: ApplyToImplicitArgs =>
+                add(ImplicitParamsSymbol)
 
+              case TypeTree() =>
+                logger.debug(s"traverse:  TypeTree - ${sym.isSynthetic}")
+                if (sym.isSynthetic)
+                  false
+                else if (!qualifySymbol(sym)) {
+                  if (t.tpe != null) {
+                    val start = treeP.startOrCursor
+                    val end = treeP.endOrCursor
+                    addAt(start, end, ObjectSymbol)
+                  }
+                  true
+                } else true
+
+              case Function(vparams, body) =>
+                logger.debug(s"vparams=$vparams, body=$body")
+                true
+              case _ =>
+                true
+            }
+          } catch {
+            case e: Throwable =>
+              log.error("Error in AST traverse:", e)
+              true
           }
-        } catch {
-          case e: Throwable =>
-            log.error("Error in AST traverse:", e)
-        }
-      }
+        } else true
       log.debug(s"traverse: ---------------")
-      super.traverse(t)
+      if (descend)
+        super.traverse(t)
     }
   }
 
